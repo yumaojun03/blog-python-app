@@ -1,0 +1,1 @@
+store static files.
