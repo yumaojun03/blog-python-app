@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-# coding: utf-8
+# -*- coding: utf-8 -*-
 
 """
 设计db模块的原因：
@@ -9,22 +9,20 @@
   2. 数据安全
       用户请求以多线程处理时，为了避免多线程下的数据共享引起的数据混乱，
       需要将数据连接以ThreadLocal对象传入。
-
 设计db接口：
-  1.设计原则： 
+  1.设计原则：
       根据上层调用者设计简单易用的API接口
   2. 调用接口
       1. 初始化数据库连接信息
           create_engine封装了如下功能:
               1. 为数据库连接 准备需要的配置信息
-              2. 创建数据库连接(由生成的全局对象engine的 connect方法提供) 
+              2. 创建数据库连接(由生成的全局对象engine的 connect方法提供)
           from transwarp import db
-          db.create_engine(user='root', 
+          db.create_engine(user='root',
                            password='password',
                            database='test',
                            host='127.0.0.1',
                            port=3306)
-
       2. 执行SQL DML
           select 函数封装了如下功能:
               1.支持一个数据库连接里执行多个SQL语句
@@ -37,20 +35,16 @@
               #     { "id": 2, "name": "Bob"},
               #     { "id": 3, "name": "Adam"}
               # ]
-
       3. 支持事物
          transaction 函数封装了如下功能:
              1. 事务也可以嵌套，内层事务会自动合并到外层事务中，这种事务模型足够满足99%的需求
 """
 
-import time, uuid, functools
+import time
+import uuid
+import functools
 import threading
 import logging
-
-
-# global engine object:
-engine = None
-
 
 
 def next_id(t=None):
@@ -59,7 +53,8 @@ def next_id(t=None):
     """
     if t is None:
         t = time.time()
-    return "%015d%s000" % (int(t * 1000), uuid.uuid4().hex)
+    return '%015d%s000' % (int(t * 1000), uuid.uuid4().hex)
+
 
 def _profiling(start, sql=''):
     """
@@ -67,9 +62,10 @@ def _profiling(start, sql=''):
     """
     t = time.time() - start
     if t > 0.1:
-        logging.warning("[PROFILING] [DB] %s: %s" % (t, sql))
+        logging.warning('[PROFILING] [DB] %s: %s' % (t, sql))
     else:
-        logging.info("[PROFILING] [DB] %s: %s" % (t, sql))
+        logging.info('[PROFILING] [DB] %s: %s' % (t, sql))
+
 
 def create_engine(user, password, database, host='127.0.0.1', port=3306, **kw):
     """
@@ -87,7 +83,9 @@ def create_engine(user, password, database, host='127.0.0.1', port=3306, **kw):
     params.update(kw)
     params['buffered'] = True
     engine = _Engine(lambda: mysql.connector.connect(**params))
+    # test connection...
     logging.info('Init mysql engine <%s> ok.' % hex(id(engine)))
+
 
 def connection():
     """
@@ -107,6 +105,7 @@ def connection():
     """
     return _ConnectionCtx()
 
+
 def with_connection(func):
     """
     设计一个装饰器 替换with语法，让代码更优雅
@@ -123,6 +122,7 @@ def with_connection(func):
             return func(*args, **kw)
     return _wrapper
 
+
 def transaction():
     """
     db模块核心函数 用于实现事物功能
@@ -138,6 +138,7 @@ def transaction():
             ...
     """
     return _TransactionCtx()
+
 
 def with_transaction(func):
     """
@@ -169,6 +170,7 @@ def with_transaction(func):
         _profiling(_start)
     return _wrapper
 
+
 @with_connection
 def _select(sql, first, *args):
     """
@@ -193,6 +195,7 @@ def _select(sql, first, *args):
         if cursor:
             cursor.close()
 
+
 def select_one(sql, *args):
     """
     执行SQL 仅返回一个结果
@@ -216,10 +219,11 @@ def select_one(sql, *args):
     """
     return _select(sql, True, *args)
 
+
 def select_int(sql, *args):
     """
     执行一个sql 返回一个数值，
-    注意仅一个数值，如果返回多个数值将触发异常 
+    注意仅一个数值，如果返回多个数值将触发异常
 
     >>> u1 = dict(id=96900, name='Ada', email='ada@test.org', passwd='A-12345', last_modified=time.time())
     >>> u2 = dict(id=96901, name='Adam', email='adam@test.org', passwd='A-12345', last_modified=time.time())
@@ -245,6 +249,7 @@ def select_int(sql, *args):
         raise MultiColumnsError('Expect only one column.')
     return d.values()[0]
 
+
 def select(sql, *args):
     """
     执行sql 以列表形式返回结果
@@ -269,6 +274,7 @@ def select(sql, *args):
     """
     return _select(sql, False, *args)
 
+
 @with_connection
 def _update(sql, *args):
     """
@@ -282,13 +288,15 @@ def _update(sql, *args):
         cursor = _db_ctx.connection.cursor()
         cursor.execute(sql, args)
         r = cursor.rowcount
-        if _db_ctx.transactions == 0:
+        if _db_ctx.transactions==0:
+            # no transaction enviroment:
             logging.info('auto commit')
             _db_ctx.connection.commit()
         return r
     finally:
         if cursor:
             cursor.close()
+
 
 def update(sql, *args):
     """
@@ -314,10 +322,11 @@ def update(sql, *args):
     """
     return _update(sql, *args)
 
+
 def insert(table, **kw):
     """
-    执行insert语句 
-    
+    执行insert语句
+
     >>> u1 = dict(id=2000, name='Bob', email='bob@test.org', passwd='bobobob', last_modified=time.time())
     >>> insert('user', **u1)
     1
@@ -330,19 +339,17 @@ def insert(table, **kw):
     IntegrityError: 1062 (23000): Duplicate entry '2000' for key 'PRIMARY'
     """
     cols, args = zip(*kw.iteritems())
-    sql = 'insert into `%s` (%s) values (%s)' % (table, 
-                                                 ','.join(['`%s`' % col for col in cols]),
-                                                 ','.join(['?' for i in range(len(cols))]))
+    sql = 'insert into `%s` (%s) values (%s)' % (table, ','.join(['`%s`' % col for col in cols]), ','.join(['?' for i in range(len(cols))]))
     return _update(sql, *args)
 
-    
+
 class Dict(dict):
     """
     字典对象
     实现一个简单的可以通过属性访问的字典，比如 x.key = value
     """
-    def __init__(self, names=(), values=(),  **kwargs):
-        super(Dict, self).__init__(**kwargs)
+    def __init__(self, names=(), values=(), **kw):
+        super(Dict, self).__init__(**kw)
         for k, v in zip(names, values):
             self[k] = v
 
@@ -353,20 +360,14 @@ class Dict(dict):
             raise AttributeError(r"'Dict' object has no attribute '%s'" % key)
 
     def __setattr__(self, key, value):
-       self[key] = value
+        self[key] = value
 
 
 class DBError(Exception):
-    """
-    DBError exception object
-    """
     pass
 
 
 class MultiColumnsError(DBError):
-    """
-    MultiColumnError exception object
-    """
     pass
 
 
@@ -384,16 +385,16 @@ class _Engine(object):
 
 class _LasyConnection(object):
     """
-    惰性连接对象 
-    仅当需要cursor对象时，才连接数据库，获取连接 
+    惰性连接对象
+    仅当需要cursor对象时，才连接数据库，获取连接
     """
     def __init__(self):
-        self.connect = None
+        self.connection = None
 
     def cursor(self):
-        if self.connect is None:
+        if self.connection is None:
             connection = engine.connect()
-            logging.info("open connection <%s>..." % hex(id(connection)))
+            logging.info('[CONNECTION] [OPEN]  connection <%s>...' % hex(id(connection)))
             self.connection = connection
         return self.connection.cursor()
 
@@ -407,7 +408,7 @@ class _LasyConnection(object):
         if self.connection:
             connection = self.connection
             self.connection = None
-            logging.info("close connection <%s>..." % hex(id(connection)))
+            logging.info('[CONNECTION] [CLOSE] connection <%s>...' % hex(id(connection)))
             connection.close()
 
 
@@ -425,7 +426,7 @@ class _DbCtx(threading.local):
         """
         返回一个布尔值，用于判断 此对象的初始化状态
         """
-        return not self.connection is None
+        return self.connection is not None
 
     def init(self):
         """
@@ -444,12 +445,17 @@ class _DbCtx(threading.local):
 
     def cursor(self):
         """
-        获取cursor对象， 真正取得数据库连接 
+        获取cursor对象， 真正取得数据库连接
         """
         return self.connection.cursor()
 
+
 # thread-local db context:
 _db_ctx = _DbCtx()
+
+# global engine object:
+engine = None
+
 
 class _ConnectionCtx(object):
     """
@@ -459,17 +465,18 @@ class _ConnectionCtx(object):
     with connection():
         pass
         with connection():
-            pass 
+            pass
     """
     def __enter__(self):
         """
-        获取一个惰性连接对象 
+        获取一个惰性连接对象
         """
         global _db_ctx
         self.should_cleanup = False
         if not _db_ctx.is_init():
             _db_ctx.init()
-            self.should_clean = True
+            self.should_cleanup = True
+        return self
 
     def __exit__(self, exctype, excvalue, traceback):
         """
@@ -479,63 +486,62 @@ class _ConnectionCtx(object):
         if self.should_cleanup:
             _db_ctx.cleanup()
 
+
 class _TransactionCtx(object):
     """
     事务嵌套比Connection嵌套复杂一点，因为事务嵌套需要计数，
     每遇到一层嵌套就+1，离开一层嵌套就-1，最后到0时提交事务
     """
+
     def __enter__(self):
         global _db_ctx
         self.should_close_conn = False
-        # needs open a connection first if connection is None
         if not _db_ctx.is_init():
+            # needs open a connection first:
             _db_ctx.init()
             self.should_close_conn = True
-        _db_ctx.transations = _db_ctx.transactions + 1
-        ts = _db_ctx.transactions
-        logging.info('[TRNSACTION] [%s] begin transaction...' % ts if ts==1 else '[TRANSACTION] join current transaction...')
+        _db_ctx.transactions = _db_ctx.transactions + 1
+        logging.info('begin transaction...' if _db_ctx.transactions == 1 else 'join current transaction...')
         return self
 
     def __exit__(self, exctype, excvalue, traceback):
         global _db_ctx
-        _db_ctx.transactins = _db_ctx.transactions - 1
+        _db_ctx.transactions = _db_ctx.transactions - 1
         try:
-            if _db_ctx.transactions == 0:
-                if exctype == None:
+            if _db_ctx.transactions==0:
+                if exctype is None:
                     self.commit()
                 else:
                     self.rollback()
-        # no matter success or failure Need to close the connection
         finally:
             if self.should_close_conn:
                 _db_ctx.cleanup()
 
     def commit(self):
         global _db_ctx
-        logging.info('[TRANSACTION] [CM] commit transaction...')
+        logging.info('commit transaction...')
         try:
             _db_ctx.connection.commit()
-            logging.info('[TRANSACTION] [CM] commit ok.')
+            logging.info('commit ok.')
         except:
-            logging.warning('[TRANSACTION] [CM] commit failed. try rollback...')
+            logging.warning('commit failed. try rollback...')
             _db_ctx.connection.rollback()
-            logging.warning('[TRANSACTION] [CM] rollback ok.')
+            logging.warning('rollback ok.')
             raise
+
     def rollback(self):
         global _db_ctx
-        logging.info('[TRANSACTION] [RB] rollback transactin...')
+        logging.warning('rollback transaction...')
         _db_ctx.connection.rollback()
-        logging.info('[TRANSACTION] [RB] rollback ok.')
+        logging.info('rollback ok.')
 
 
 
-def test():
+
+if __name__=='__main__':
     logging.basicConfig(level=logging.DEBUG)
     create_engine('www-data', 'www-data', 'test', '192.168.10.128')
     update('drop table if exists user')
     update('create table user (id int primary key, name text, email text, passwd text, last_modified real)')
     import doctest
     doctest.testmod()
-
-if __name__ == "__main__":
-    test()
