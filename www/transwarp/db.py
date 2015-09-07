@@ -145,6 +145,21 @@ def with_transaction(func):
     比如:
         @with_transaction
         def do_in_transaction():
+
+    >>> @with_transaction
+    ... def update_profile(id, name, rollback):
+    ...     u = dict(id=id, name=name, email='%s@test.org' % name, passwd=name, last_modified=time.time())
+    ...     insert('user', **u)
+    ...     r = update('update user set passwd=? where id=?', name.upper(), id)
+    ...     if rollback:
+    ...         raise StandardError('will cause rollback...')
+    >>> update_profile(8080, 'Julia', False)
+    >>> select_one('select * from user where id=?', 8080).passwd
+    u'JULIA'
+    >>> update_profile(9090, 'Robert', True)
+    Traceback (most recent call last):
+      ...
+    StandardError: will cause rollback...
     """
     @functools.wraps(func)
     def _wrapper(*args, **kw):
@@ -184,6 +199,20 @@ def select_one(sql, *args):
     如果没有结果 返回None
     如果有1个结果，返回一个结果
     如果有多个结果，返回第一个结果
+
+    >>> u1 = dict(id=100, name='Alice', email='alice@test.org', passwd='ABC-12345', last_modified=time.time())
+    >>> u2 = dict(id=101, name='Sarah', email='sarah@test.org', passwd='ABC-12345', last_modified=time.time())
+    >>> insert('user', **u1)
+    1
+    >>> insert('user', **u2)
+    1
+    >>> u = select_one('select * from user where id=?', 100)
+    >>> u.name
+    u'Alice'
+    >>> select_one('select * from user where email=?', 'abc@email.com')
+    >>> u2 = select_one('select * from user where passwd=? order by email', 'ABC-12345')
+    >>> u2.name
+    u'Alice'
     """
     return _select(sql, True, *args)
 
@@ -191,15 +220,52 @@ def select_int(sql, *args):
     """
     执行一个sql 返回一个数值，
     注意仅一个数值，如果返回多个数值将触发异常 
+
+    >>> u1 = dict(id=96900, name='Ada', email='ada@test.org', passwd='A-12345', last_modified=time.time())
+    >>> u2 = dict(id=96901, name='Adam', email='adam@test.org', passwd='A-12345', last_modified=time.time())
+    >>> insert('user', **u1)
+    1
+    >>> insert('user', **u2)
+    1
+    >>> select_int('select count(*) from user')
+    5
+    >>> select_int('select count(*) from user where email=?', 'ada@test.org')
+    1
+    >>> select_int('select count(*) from user where email=?', 'notexist@test.org')
+    0
+    >>> select_int('select id from user where email=?', 'ada@test.org')
+    96900
+    >>> select_int('select id, name from user where email=?', 'ada@test.org')
+    Traceback (most recent call last):
+        ...
+    MultiColumnsError: Expect only one column.
     """
     d = _select(sql, True, *args)
     if len(d) != 1:
-        raise MultiColumnError('Expect only one column.')
+        raise MultiColumnsError('Expect only one column.')
     return d.values()[0]
 
 def select(sql, *args):
     """
     执行sql 以列表形式返回结果
+
+    >>> u1 = dict(id=200, name='Wall.E', email='wall.e@test.org', passwd='back-to-earth', last_modified=time.time())
+    >>> u2 = dict(id=201, name='Eva', email='eva@test.org', passwd='back-to-earth', last_modified=time.time())
+    >>> insert('user', **u1)
+    1
+    >>> insert('user', **u2)
+    1
+    >>> L = select('select * from user where id=?', 900900900)
+    >>> L
+    []
+    >>> L = select('select * from user where id=?', 200)
+    >>> L[0].email
+    u'wall.e@test.org'
+    >>> L = select('select * from user where passwd=? order by id desc', 'back-to-earth')
+    >>> L[0].name
+    u'Eva'
+    >>> L[1].name
+    u'Wall.E'
     """
     return _select(sql, False, *args)
 
@@ -227,11 +293,41 @@ def _update(sql, *args):
 def update(sql, *args):
     """
     执行update 语句，返回update的行数
+
+    >>> u1 = dict(id=1000, name='Michael', email='michael@test.org', passwd='123456', last_modified=time.time())
+    >>> insert('user', **u1)
+    1
+    >>> u2 = select_one('select * from user where id=?', 1000)
+    >>> u2.email
+    u'michael@test.org'
+    >>> u2.passwd
+    u'123456'
+    >>> update('update user set email=?, passwd=? where id=?', 'michael@example.org', '654321', 1000)
+    1
+    >>> u3 = select_one('select * from user where id=?', 1000)
+    >>> u3.email
+    u'michael@example.org'
+    >>> u3.passwd
+    u'654321'
+    >>> update('update user set passwd=? where id=?', '***', '123')
+    0
     """
     return _update(sql, *args)
 
 def insert(table, **kw):
     """
+    执行insert语句 
+    
+    >>> u1 = dict(id=2000, name='Bob', email='bob@test.org', passwd='bobobob', last_modified=time.time())
+    >>> insert('user', **u1)
+    1
+    >>> u2 = select_one('select * from user where id=?', 2000)
+    >>> u2.name
+    u'Bob'
+    >>> insert('user', **u2)
+    Traceback (most recent call last):
+      ...
+    IntegrityError: 1062 (23000): Duplicate entry '2000' for key 'PRIMARY'
     """
     cols, args = zip(*kw.iteritems())
     sql = 'insert into `%s` (%s) values (%s)' % (table, 
@@ -267,7 +363,7 @@ class DBError(Exception):
     pass
 
 
-class MultiColumnError(DBError):
+class MultiColumnsError(DBError):
     """
     MultiColumnError exception object
     """
@@ -433,10 +529,13 @@ class _TransactionCtx(object):
 
 
 
-if __name__ == "__main__":
+def test():
     logging.basicConfig(level=logging.DEBUG)
-    create_engine('www-data', 'www-data', 'test')
-    update('drop table if exists user111')
-    update('create table user111 (id int primary key, name text, email text, passwd text, last_modified real)')
+    create_engine('www-data', 'www-data', 'test', '192.168.10.128')
+    update('drop table if exists user')
+    update('create table user (id int primary key, name text, email text, passwd text, last_modified real)')
     import doctest
     doctest.testmod()
+
+if __name__ == "__main__":
+    test()
