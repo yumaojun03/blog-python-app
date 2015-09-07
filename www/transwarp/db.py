@@ -15,6 +15,9 @@
       根据上层调用者设计简单易用的API接口
   2. 调用接口
       1. 初始化数据库连接信息
+          create_engine封装了如下功能:
+              1. 为数据库连接 准备需要的配置信息
+              2. 创建数据库连接(由生成的全局对象engine的 connect方法提供) 
           from transwarp import db
           db.create_engine(user='root', 
                            password='password',
@@ -22,14 +25,22 @@
                            host='127.0.0.1',
                            port=3306)
 
-      2. 执行查询
-          users = db.select('select * from user')
-          # users =>
-          # [
-          #     { "id": 1, "name": "Michael"},
-          #     { "id": 2, "name": "Bob"},
-          #     { "id": 3, "name": "Adam"}
-          # ]
+      2. 执行SQL DML
+          select 函数封装了如下功能:
+              1.支持一个数据库连接里执行多个SQL语句
+              2.支持链接的自动获取和释放
+          使用样例:
+              users = db.select('select * from user')
+              # users =>
+              # [
+              #     { "id": 1, "name": "Michael"},
+              #     { "id": 2, "name": "Bob"},
+              #     { "id": 3, "name": "Adam"}
+              # ]
+
+      3. 支持事物
+         transaction 函数封装了如下功能:
+             1. 事务也可以嵌套，内层事务会自动合并到外层事务中，这种事务模型足够满足99%的需求
 """
 
 import time, uuid, functools
@@ -96,7 +107,55 @@ def connection():
     """
     return _ConnectionCtx()
 
+def with_connection(func):
+    """
+    设计一个装饰器 替换with语法，让代码更优雅
+    比如:
+        @with_connection
+        def foo(*args, **kw):
+            f1()
+            f2()
+            f3()
+    """
+    @functools.wraps(func)
+    def _wrapper(*args, **kw):
+        with _ConnectionCtx():
+            return func(*args, **kw)
+    return _wrapper
 
+def transaction():
+    """
+    db模块核心函数 用于实现事物功能
+    支持事物:
+        with db.transaction():
+            db.select('...')
+            db.update('...')
+            db.update('...')
+    支持事物嵌套:
+        with db.transaction():
+            transaction1
+            transaction2
+            ...
+    """
+    return _TransactionCtx()
+
+def with_transaction(func):
+    """
+    设计一个装饰器 替换with语法，让代码更优雅
+    比如:
+        @with_transaction
+        def do_in_transaction():
+    """
+    @functools.wraps(func)
+    def _wrapper(*args, **kw):
+        _start = time.time()
+        with _TransactionCtx():
+            return func(*args, **kw)
+        _profiling(_start)
+    return _wrapper
+
+
+    
 class Dict(dict):
     """
     字典对象
@@ -237,6 +296,62 @@ class _ConnectionCtx(object):
         global _db_ctx
         if self.should_cleanup:
             _db_ctx.cleanup()
+
+class _TransactionCtx(object):
+    """
+    事务嵌套比Connection嵌套复杂一点，因为事务嵌套需要计数，
+    每遇到一层嵌套就+1，离开一层嵌套就-1，最后到0时提交事务
+    """
+    def __enter__(self):
+        global _db_ctx
+        self.should_close_conn = False
+        # needs open a connection first if connection is None
+        if not _db_ctx.is_init():
+            _db_ctx.init()
+            self.should_close_conn = True
+        _db_ctx.transations = _db_ctx.transactions + 1
+        ts = _db_ctx.transactions
+        logging.info('[TRNSACTION] [%s] begin transaction...' % ts if ts==1 else '[TRANSACTION] join current transaction...')
+        return self
+
+    def __exit__(self, exctype, excvalue, traceback):
+        global _db_ctx
+        _db_ctx.transactins = _db_ctx.transactions - 1
+        try:
+            if _db_ctx.transactions == 0:
+                if exctype == None:
+                    self.commit()
+                else:
+                    self.rollback()
+        # no matter success or failure Need to close the connection
+        finally:
+            if self.should_close_conn:
+                _db_ctx.cleanup()
+
+    def commit(self):
+        global _db_ctx
+        logging.info('[TRANSACTION] [CM] commit transaction...')
+        try:
+            _db_ctx.connection.commit()
+            logging.info('[TRANSACTION] [CM] commit ok.')
+        except:
+            logging.warning('[TRANSACTION] [CM] commit failed. try rollback...')
+            _db_ctx.connection.rollback()
+            logging.warning('[TRANSACTION] [CM] rollback ok.')
+            raise
+    def rollback(self):
+        global _db_ctx
+        logging.info('[TRANSACTION] [RB] rollback transactin...')
+        _db_ctx.connection.rollback()
+        logging.info('[TRANSACTION] [RB] rollback ok.')
+
+
+
+        
+        
+        
+
+
 
 
 
