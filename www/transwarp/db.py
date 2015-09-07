@@ -81,7 +81,7 @@ def create_engine(user, password, database, host='127.0.0.1', port=3306, **kw):
     if engine is not None:
         raise DBError('Engine is already initialized.')
     params = dict(user=user, password=password, database=database, host=host, port=port)
-    defaults = dict(use_unicode=True, charset='utf-8', collation='utf8_general_ci', autocommit=False)
+    defaults = dict(use_unicode=True, charset='utf8', collation='utf8_general_ci', autocommit=False)
     for k, v in defaults.iteritems():
         params[k] = kw.pop(k, v)
     params.update(kw)
@@ -154,6 +154,90 @@ def with_transaction(func):
         _profiling(_start)
     return _wrapper
 
+@with_connection
+def _select(sql, first, *args):
+    """
+    执行SQL，返回一个结果 或者多个结果组成的列表
+    """
+    global _db_ctx
+    cursor = None
+    sql = sql.replace('?', '%s')
+    logging.info('SQL: %s, ARGS: %s' % (sql, args))
+    try:
+        cursor = _db_ctx.connection.cursor()
+        cursor.execute(sql, args)
+        if cursor.description:
+            names = [x[0] for x in cursor.description]
+        if first:
+            values = cursor.fetchone()
+            if not values:
+                return None
+            return Dict(names, values)
+        return [Dict(names, x) for x in cursor.fetchall()]
+    finally:
+        if cursor:
+            cursor.close()
+
+def select_one(sql, *args):
+    """
+    执行SQL 仅返回一个结果
+    如果没有结果 返回None
+    如果有1个结果，返回一个结果
+    如果有多个结果，返回第一个结果
+    """
+    return _select(sql, True, *args)
+
+def select_int(sql, *args):
+    """
+    执行一个sql 返回一个数值，
+    注意仅一个数值，如果返回多个数值将触发异常 
+    """
+    d = _select(sql, True, *args)
+    if len(d) != 1:
+        raise MultiColumnError('Expect only one column.')
+    return d.values()[0]
+
+def select(sql, *args):
+    """
+    执行sql 以列表形式返回结果
+    """
+    return _select(sql, False, *args)
+
+@with_connection
+def _update(sql, *args):
+    """
+    执行update 语句，返回update的行数
+    """
+    global _db_ctx
+    cursor = None
+    sql = sql.replace('?', '%s')
+    logging.info('SQL: %s, ARGS: %s' % (sql, args))
+    try:
+        cursor = _db_ctx.connection.cursor()
+        cursor.execute(sql, args)
+        r = cursor.rowcount
+        if _db_ctx.transactions == 0:
+            logging.info('auto commit')
+            _db_ctx.connection.commit()
+        return r
+    finally:
+        if cursor:
+            cursor.close()
+
+def update(sql, *args):
+    """
+    执行update 语句，返回update的行数
+    """
+    return _update(sql, *args)
+
+def insert(table, **kw):
+    """
+    """
+    cols, args = zip(*kw.iteritems())
+    sql = 'insert into `%s` (%s) values (%s)' % (table, 
+                                                 ','.join(['`%s`' % col for col in cols]),
+                                                 ','.join(['?' for i in range(len(cols))]))
+    return _update(sql, *args)
 
     
 class Dict(dict):
@@ -161,8 +245,10 @@ class Dict(dict):
     字典对象
     实现一个简单的可以通过属性访问的字典，比如 x.key = value
     """
-    def __init__(self, **kwargs):
+    def __init__(self, names=(), values=(),  **kwargs):
         super(Dict, self).__init__(**kwargs)
+        for k, v in zip(names, values):
+            self[k] = v
 
     def __getattr__(self, key):
         try:
@@ -197,7 +283,7 @@ class _Engine(object):
         self._connect = connect
 
     def connect(self):
-        return self._connect
+        return self._connect()
 
 
 class _LasyConnection(object):
@@ -279,7 +365,7 @@ class _ConnectionCtx(object):
         with connection():
             pass 
     """
-    def __enter(self):
+    def __enter__(self):
         """
         获取一个惰性连接对象 
         """
@@ -347,12 +433,10 @@ class _TransactionCtx(object):
 
 
 
-        
-        
-        
-
-
-
-
-
-
+if __name__ == "__main__":
+    logging.basicConfig(level=logging.DEBUG)
+    create_engine('www-data', 'www-data', 'test')
+    update('drop table if exists user111')
+    update('create table user111 (id int primary key, name text, email text, passwd text, last_modified real)')
+    import doctest
+    doctest.testmod()
