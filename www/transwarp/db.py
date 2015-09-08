@@ -47,6 +47,10 @@ import threading
 import logging
 
 
+# global engine object:
+engine = None
+
+
 def next_id(t=None):
     """
     生成一个唯一id   由 当前时间 + 随机数（由伪随机数得来）拼接得到
@@ -151,7 +155,7 @@ def with_transaction(func):
     ... def update_profile(id, name, rollback):
     ...     u = dict(id=id, name=name, email='%s@test.org' % name, passwd=name, last_modified=time.time())
     ...     insert('user', **u)
-    ...     r = update('update user set passwd=? where id=?', name.upper(), id)
+    ...     update('update user set passwd=? where id=?', name.upper(), id)
     ...     if rollback:
     ...         raise StandardError('will cause rollback...')
     >>> update_profile(8080, 'Julia', False)
@@ -164,10 +168,10 @@ def with_transaction(func):
     """
     @functools.wraps(func)
     def _wrapper(*args, **kw):
-        _start = time.time()
+        start = time.time()
         with _TransactionCtx():
-            return func(*args, **kw)
-        _profiling(_start)
+            func(*args, **kw)
+        _profiling(start)
     return _wrapper
 
 
@@ -288,7 +292,7 @@ def _update(sql, *args):
         cursor = _db_ctx.connection.cursor()
         cursor.execute(sql, args)
         r = cursor.rowcount
-        if _db_ctx.transactions==0:
+        if _db_ctx.transactions == 0:
             # no transaction enviroment:
             logging.info('auto commit')
             _db_ctx.connection.commit()
@@ -393,9 +397,9 @@ class _LasyConnection(object):
 
     def cursor(self):
         if self.connection is None:
-            connection = engine.connect()
-            logging.info('[CONNECTION] [OPEN]  connection <%s>...' % hex(id(connection)))
-            self.connection = connection
+            _connection = engine.connect()
+            logging.info('[CONNECTION] [OPEN] connection <%s>...' % hex(id(_connection)))
+            self.connection = _connection
         return self.connection.cursor()
 
     def commit(self):
@@ -406,10 +410,10 @@ class _LasyConnection(object):
 
     def cleanup(self):
         if self.connection:
-            connection = self.connection
+            _connection = self.connection
             self.connection = None
             logging.info('[CONNECTION] [CLOSE] connection <%s>...' % hex(id(connection)))
-            connection.close()
+            _connection.close()
 
 
 class _DbCtx(threading.local):
@@ -452,9 +456,6 @@ class _DbCtx(threading.local):
 
 # thread-local db context:
 _db_ctx = _DbCtx()
-
-# global engine object:
-engine = None
 
 
 class _ConnectionCtx(object):
@@ -500,15 +501,15 @@ class _TransactionCtx(object):
             # needs open a connection first:
             _db_ctx.init()
             self.should_close_conn = True
-        _db_ctx.transactions = _db_ctx.transactions + 1
+        _db_ctx.transactions += 1
         logging.info('begin transaction...' if _db_ctx.transactions == 1 else 'join current transaction...')
         return self
 
     def __exit__(self, exctype, excvalue, traceback):
         global _db_ctx
-        _db_ctx.transactions = _db_ctx.transactions - 1
+        _db_ctx.transactions -= 1
         try:
-            if _db_ctx.transactions==0:
+            if _db_ctx.transactions == 0:
                 if exctype is None:
                     self.commit()
                 else:
@@ -536,9 +537,7 @@ class _TransactionCtx(object):
         logging.info('rollback ok.')
 
 
-
-
-if __name__=='__main__':
+if __name__ == '__main__':
     logging.basicConfig(level=logging.DEBUG)
     create_engine('www-data', 'www-data', 'test', '192.168.10.128')
     update('drop table if exists user')
