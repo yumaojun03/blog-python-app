@@ -51,7 +51,8 @@ def _gen_sql(table_name, mappings):
         nullable = f.nullable
         if f.primary_key:
             pk = f.name
-        sql.append(nullable and '  `%s` %s,' % (f.name, ddl) or '  `%s` %s not null,' % (f.name, ddl))
+        #sql.append(nullable and '  `%s` %s,' % (f.name, ddl) or '  `%s` %s not null,' % (f.name, ddl))
+        sql.append('  `%s` %s,' % (f.name, ddl) if nullable else '  `%s` %s not null,' % (f.name, ddl))
     sql.append('  primary key(`%s`)' % pk)
     sql.append(');')
     return '\n'.join(sql)
@@ -85,6 +86,9 @@ class Field(object):
                 `last_modified` real not null,
                 primary key(`id`)
                 );
+    self._default: 用于让orm自己填入缺省值，缺省值可以是 可调用对象，比如函数
+                比如：passwd 字段 <StringField:passwd,varchar(255),default(<function <lambda> at 0x0000000002A13898>),UI>
+                     这里passwd的默认值 就可以通过 返回的函数 调用取得
     其他的实例属性都是用来描述字段属性的
     """
     _count = 0
@@ -157,6 +161,17 @@ class FloatField(Field):
             kw['ddl'] = 'real'
         super(FloatField, self).__init__(**kw)
 
+
+class BooleanField(Field):
+    """
+    保存BooleanField类型字段的属性
+    """
+    def __init__(self, **kw):
+        if not 'default' in kw:
+            kw['default'] = False
+        if not 'ddl' in kw:
+            kw['ddl'] = 'bool'
+        super(BooleanField, self).__init__(**kw)
 
 class TextField(Field):
     """
@@ -379,6 +394,18 @@ class Model(dict):
         return db.select_int('select count(`%s`) from `%s` %s' % (cls.__primary_key__.name, cls.__table__, where), *args)
 
     def update(self):
+        """
+        如果该行的字段属性有 updatable，代表该字段可以被更新
+        用于定义的表（继承Model的类）是一个 Dict对象，键值会变成实例的属性
+        所以可以通过属性来判断 用户是否定义了该字段的值
+            如果有属性， 就使用用户传入的值
+            如果无属性， 则调用字段对象的 default属性传入
+            具体见 Field类 的 default 属性
+
+        通过的db对象的update接口执行SQL
+            SQL: update `user` set `passwd`=%s,`last_modified`=%s,`name`=%s where id=%s,
+                 ARGS: (u'******', 1441878476.202391, u'Michael', 10190
+        """
         self.pre_update and self.pre_update()
         L = []
         args = []
@@ -398,7 +425,8 @@ class Model(dict):
 
     def delete(self):
         """
-
+        通过db对象的 update接口 执行SQL
+            SQL: delete from `user` where `id`=%s, ARGS: (10190,)
         """
         self.pre_delete and self.pre_delete()
         pk = self.__primary_key__.name
@@ -408,7 +436,9 @@ class Model(dict):
 
     def insert(self):
         """
-
+        通过db对象的insert接口执行SQL
+            SQL: insert into `user` (`passwd`,`last_modified`,`id`,`name`,`email`) values (%s,%s,%s,%s,%s),
+            　　　　　 ARGS: ('******', 1441878476.202391, 10190, 'Michael', 'orm@db.org')
         """
         self.pre_insert and self.pre_insert()
         params = {}
