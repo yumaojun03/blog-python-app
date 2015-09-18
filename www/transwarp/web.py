@@ -9,13 +9,20 @@ WSGI概要：
           让我们专心用Python编写Web业务，也就是 WSGI 处理函数
           所以WSGI 是HTTP的一种高级封装。
     例子：
-        def application(environ, start_response):
-            method = environ['REQUEST_METHOD']
-            path = environ['PATH_INFO']
-            if method=='GET' and path=='/':
-            return handle_home(environ, start_response)
-            if method=='POST' and path='/signin':
-            return handle_signin(environ, start_response)
+        wsgi 处理函数
+            def application(environ, start_response):
+                method = environ['REQUEST_METHOD']
+                path = environ['PATH_INFO']
+                if method=='GET' and path=='/':
+                return handle_home(environ, start_response)
+                if method=='POST' and path='/signin':
+                return handle_signin(environ, start_response)
+
+        wsgi server
+            def run(self, port=9000, host='127.0.0.1'):
+                from wsgiref.simple_server import make_server
+                server = make_server(host, port, application)
+                server.serve_forever()
 
 设计web框架的原因：
     1. WSGI提供的接口虽然比HTTP接口高级了不少，但和Web App的处理逻辑比，还是比较低级，
