@@ -1546,7 +1546,7 @@ class WSGIApplication(object):
         def fn_route():
             request_method = ctx.request.request_method
             path_info = ctx.request.path_info
-            if request_method == 'GET':
+            if request_method=='GET':
                 fn = self._get_static.get(path_info, None)
                 if fn:
                     return fn()
@@ -1555,7 +1555,7 @@ class WSGIApplication(object):
                     if args:
                         return fn(*args)
                 raise HttpError.notfound()
-            if request_method == 'POST':
+            if request_method=='POST':
                 fn = self._post_static.get(path_info, None)
                 if fn:
                     return fn()
@@ -1564,8 +1564,9 @@ class WSGIApplication(object):
                     if args:
                         return fn(*args)
                 raise HttpError.notfound()
-            raise HttpError.badrequest()
+            raise badrequest()
 
+        fn_exec = _build_interceptor_chain(fn_route, *self._interceptors)
         fn_exec = _build_interceptor_chain(fn_route, *self._interceptors)
 
         def wsgi(env, start_response):
@@ -1589,7 +1590,7 @@ class WSGIApplication(object):
                 response.set_header('Location', e.location)
                 start_response(e.status, response.headers)
                 return []
-            except HttpError, e:
+            except _HttpError, e:
                 start_response(e.status, response.headers)
                 return ['<html><body><h1>', e.status, '</h1></body></html>']
             except Exception, e:
