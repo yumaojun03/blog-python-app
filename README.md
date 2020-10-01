@@ -27,3 +27,31 @@ awesome-python-webapp/   <-- 根目录
 |
 +- LICENSE               <-- 代码LICENSE
 ```
+
+
+
+English Documentation
+----------------------------------
+1. Project description
+
+The project comes from Liao Xuefeng's official website, the purpose is to learn to write your own web microframework
+
+If you want to learn python, his tutorial is worth recommending Liao Xuefeng official website
+
+2. Project structure
+
+awesome-python-webapp/ <-- root directory
+|
++- backup/ <-- backup directory
+|
++- conf/ <-- configuration file
+|
++- dist/ <-- packaging directory
+|
++- www/ <-- Web directory, storing .py files
+| |
+| +- static/ <-- Store static files
+| |
+| +- templates/ <-- store template files
+|
++- LICENSE <-- code LICENSE
